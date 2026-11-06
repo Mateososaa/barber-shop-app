@@ -4,24 +4,27 @@ import barberApi from '../api/barberApi';
 export const AppointmentForm = ({ onAppointmentCreated }) => {
   const [users, setUsers] = useState([]);
   const [services, setServices] = useState([]);
-  
+
   const [formData, setFormData] = useState({
     cliente_id: '',
     barbero_id: '',
     servicio_id: '',
-    fecha_hora_inicio: ''
+    fecha: '',
+    hora: ''
   });
 
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
 
-  // Fecha y hora actual formateada en hora local (YYYY-MM-DDTHH:mm) para el atributo min
-  const now = new Date();
-  const minDateTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
+  const today = new Date().toISOString().split('T')[0];
 
-  // Cargar barberos, clientes y servicios para los selects
+  const timeSlots = [
+    '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
+    '12:00', '12:30', '13:00', '13:30', '14:00', '14:30',
+    '15:00', '15:30', '16:00', '16:30', '17:00', '17:30',
+    '18:00', '18:30', '19:00', '19:30'
+  ];
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -50,19 +53,21 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
     setMessage(null);
     setError(null);
 
+    const fechaHoraInicio = `${formData.fecha}T${formData.hora}`;
+
     try {
       const response = await barberApi.post('/appointments/', {
         cliente_id: parseInt(formData.cliente_id),
         barbero_id: parseInt(formData.barbero_id),
         servicio_id: parseInt(formData.servicio_id),
-        fecha_hora_inicio: formData.fecha_hora_inicio
+        fecha_hora_inicio: fechaHoraInicio
       });
 
       setMessage('¡Turno reservado exitosamente!');
-      setFormData({ cliente_id: '', barbero_id: '', servicio_id: '', fecha_hora_inicio: '' });
+      setFormData({ cliente_id: '', barbero_id: '', servicio_id: '', fecha: '', hora: '' });
       if (onAppointmentCreated) onAppointmentCreated(response.data);
     } catch (err) {
-      if (err.response && err.response.status === 409) {
+      if (err.response && (err.response.status === 409 || err.response.status === 400)) {
         setError(err.response.data.detail);
       } else {
         setError('Ocurrió un error al intentar agendar el turno.');
@@ -74,21 +79,21 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
   const clientes = users.filter((u) => u.rol === 'CLIENTE');
 
   return (
-    <div className="card shadow-sm border-0 my-4">
+    <div className="card shadow-sm border-0 rounded-4">
       <div className="card-body p-4">
-        <h4 className="card-title fw-bold mb-3">
-          <i className="bi bi-calendar-plus me-2"></i>Agendar Turno
+        <h4 className="card-title fw-bold mb-3 d-flex align-items-center gap-2">
+          <i className="bi bi-calendar-plus text-primary"></i>Agendar Turno
         </h4>
 
-        {message && <div className="alert alert-success">{message}</div>}
-        {error && <div className="alert alert-danger">{error}</div>}
+        {message && <div className="alert alert-success rounded-3">{message}</div>}
+        {error && <div className="alert alert-danger rounded-3">{error}</div>}
 
         <form onSubmit={handleSubmit}>
           <div className="row g-3">
             <div className="col-md-6">
-              <label className="form-label fw-bold">Cliente</label>
+              <label className="form-label fw-bold small text-muted">Cliente</label>
               <select
-                className="form-select"
+                className="form-select rounded-3 py-2"
                 name="cliente_id"
                 value={formData.cliente_id}
                 onChange={handleChange}
@@ -102,9 +107,9 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
             </div>
 
             <div className="col-md-6">
-              <label className="form-label fw-bold">Barbero</label>
+              <label className="form-label fw-bold small text-muted">Barbero</label>
               <select
-                className="form-select"
+                className="form-select rounded-3 py-2"
                 name="barbero_id"
                 value={formData.barbero_id}
                 onChange={handleChange}
@@ -117,10 +122,10 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
               </select>
             </div>
 
-            <div className="col-md-6">
-              <label className="form-label fw-bold">Servicio</label>
+            <div className="col-12">
+              <label className="form-label fw-bold small text-muted">Servicio</label>
               <select
-                className="form-select"
+                className="form-select rounded-3 py-2"
                 name="servicio_id"
                 value={formData.servicio_id}
                 onChange={handleChange}
@@ -134,29 +139,44 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
             </div>
 
             <div className="col-md-6">
-              <label className="form-label fw-bold">Fecha y Hora del Turno</label>
+              <label className="form-label fw-bold small text-muted">Fecha del Turno</label>
               <div className="input-group">
-                <span className="input-group-text bg-white border-end-0">
+                <span className="input-group-text bg-white border-end-0 rounded-start-3">
                   <i className="bi bi-calendar-event text-primary"></i>
                 </span>
                 <input
-                  type="datetime-local"
-                  className="form-control border-start-0"
-                  name="fecha_hora_inicio"
-                  value={formData.fecha_hora_inicio}
+                  type="date"
+                  className="form-control border-start-0 rounded-end-3 py-2"
+                  name="fecha"
+                  value={formData.fecha}
                   onChange={handleChange}
-                  min={minDateTime}
+                  min={today}
                   onClick={(e) => e.target.showPicker && e.target.showPicker()}
                   required
                 />
               </div>
-              <small className="form-text text-muted">
-                Hacé clic en el campo para desplegar el almanaque.
-              </small>
+            </div>
+
+            <div className="col-md-6">
+              <label className="form-label fw-bold small text-muted">Hora del Turno</label>
+              <select
+                className="form-select rounded-3 py-2"
+                name="hora"
+                value={formData.hora}
+                onChange={handleChange}
+                required
+              >
+                <option value="">Seleccionar Hora...</option>
+                {timeSlots.map((slot) => (
+                  <option key={slot} value={slot}>
+                    {slot} hs
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          <button type="submit" className="btn btn-dark w-100 mt-4 py-2 fw-bold">
+          <button type="submit" className="btn btn-dark w-100 mt-4 py-2.5 fw-bold rounded-3">
             Confirmar Reserva
           </button>
         </form>

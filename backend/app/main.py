@@ -1,8 +1,8 @@
+from datetime import datetime, timedelta
+from typing import List
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
-from typing import List
 
 from app.database import engine, Base, get_db
 import app.models as models
@@ -30,11 +30,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ... (resto de tus endpoints abajo igual)
+# --- FUNCIÓN AUXILIAR DE ESTADO DINÁMICO ---
+def calcular_estado_turno(inicio: datetime, fin: datetime) -> str:
+    ahora = datetime.now()
+    if ahora < inicio:
+        return "Reservado"
+    elif inicio <= ahora <= fin:
+        return "En Curso"
+    else:
+        return "Finalizado"
+
 
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "API de Barbería conectada exitosamente"}
+
 
 # ==========================================
 # 1. ENDPOINTS DE SERVICIOS
@@ -51,21 +61,20 @@ def create_service(service: schemas.ServiceCreate, db: Session = Depends(get_db)
 def get_services(db: Session = Depends(get_db)):
     return db.query(models.Service).all()
 
+
 # ==========================================
 # 2. ENDPOINTS DE USUARIOS
 # ==========================================
 @app.post("/users/", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED, tags=["Usuarios"])
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    # Verificar si el email ya existe
     existing_user = db.query(models.User).filter(models.User.email == user.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="El email ya está registrado")
     
-    # Nota: En producción debemos encriptar la contraseña (ej: passlib/bcrypt)
     db_user = models.User(
         nombre=user.nombre,
         email=user.email,
-        password_hash=user.password,  # temporal
+        password_hash=user.password,
         rol=user.rol
     )
     db.add(db_user)
@@ -77,25 +86,40 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
 def get_users(db: Session = Depends(get_db)):
     return db.query(models.User).all()
 
+
 # ==========================================
 # 3. ENDPOINTS DE TURNOS (APPOINTMENTS)
 # ==========================================
 @app.post("/appointments/", response_model=schemas.AppointmentResponse, status_code=status.HTTP_201_CREATED, tags=["Turnos"])
 def create_appointment(appointment: schemas.AppointmentCreate, db: Session = Depends(get_db)):
-    # 1. Verificar que el servicio existe
+    ahora = datetime.now()
+
+    # 1. Validar que no sea una fecha/hora pasada
+    if appointment.fecha_hora_inicio < ahora:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No podés agendar un turno en una fecha u hora pasada."
+        )
+
+    # 2. Validar bloques de 30 minutos (:00 o :30)
+    if appointment.fecha_hora_inicio.minute not in (0, 30) or appointment.fecha_hora_inicio.second != 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Los turnos deben programarse exactos a la hora o a la media hora (ej: 14:00 o 14:30)."
+        )
+
+    # 3. Verificar existencia del servicio
     service = db.query(models.Service).filter(models.Service.id == appointment.servicio_id).first()
     if not service:
         raise HTTPException(status_code=404, detail="El servicio no existe")
 
-    # 2. Calcular fecha_hora_fin según la duración del servicio
+    # 4. Calcular fin según duración del servicio
     fecha_inicio = appointment.fecha_hora_inicio
     fecha_fin = fecha_inicio + timedelta(minutes=service.duracion_minutos)
 
-    # 3. Validar solapamiento de horarios para el barbero
-    # Condición: NuevoInicio < ExistenteFin AND NuevoFin > ExistenteInicio
+    # 5. Validar solapamiento de horarios para el barbero
     overlapping = db.query(models.Appointment).filter(
         models.Appointment.barbero_id == appointment.barbero_id,
-        models.Appointment.estado == "RESERVADO",
         models.Appointment.fecha_hora_inicio < fecha_fin,
         models.Appointment.fecha_hora_fin > fecha_inicio
     ).first()
@@ -103,17 +127,17 @@ def create_appointment(appointment: schemas.AppointmentCreate, db: Session = Dep
     if overlapping:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="El barbero ya tiene un turno reservado en ese rango horario."
+            detail="El barbero ya tiene un turno reservado en ese horario."
         )
 
-    # 4. Crear el turno si está disponible
+    # 6. Guardar el turno con el estado inicial calculado
     db_appointment = models.Appointment(
         cliente_id=appointment.cliente_id,
         barbero_id=appointment.barbero_id,
         servicio_id=appointment.servicio_id,
         fecha_hora_inicio=fecha_inicio,
         fecha_hora_fin=fecha_fin,
-        estado="RESERVADO"
+        estado=calcular_estado_turno(fecha_inicio, fecha_fin)
     )
     db.add(db_appointment)
     db.commit()
@@ -122,4 +146,20 @@ def create_appointment(appointment: schemas.AppointmentCreate, db: Session = Dep
 
 @app.get("/appointments/", response_model=List[schemas.AppointmentResponse], tags=["Turnos"])
 def get_appointments(db: Session = Depends(get_db)):
-    return db.query(models.Appointment).all()
+    appointments = db.query(models.Appointment).all()
+    # Recalcular dinámicamente el estado en tiempo real antes de enviar la respuesta
+    for app_item in appointments:
+        app_item.estado = calcular_estado_turno(app_item.fecha_hora_inicio, app_item.fecha_hora_fin)
+    return appointments
+
+@app.delete("/appointments/{appointment_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Turnos"])
+def delete_appointment(appointment_id: int, db: Session = Depends(get_db)):
+    appointment = db.query(models.Appointment).filter(models.Appointment.id == appointment_id).first()
+    if not appointment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El turno no existe."
+        )
+    db.delete(appointment)
+    db.commit()
+    return None
