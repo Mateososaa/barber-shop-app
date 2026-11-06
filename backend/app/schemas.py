@@ -1,8 +1,40 @@
-from pydantic import BaseModel, EmailStr
-from datetime import datetime
-from typing import Optional
+from pydantic import BaseModel
+from datetime import datetime, time
+from typing import List, Optional
 
-# --- SCHEMAS DE SERVICIOS ---
+# --- SCHEMAS HORARIOS ---
+class WorkScheduleBase(BaseModel):
+    dia_semana: int # 0 a 6
+    hora_apertura: time
+    hora_cierre: time
+
+class WorkScheduleCreate(WorkScheduleBase):
+    pass
+
+class WorkScheduleResponse(WorkScheduleBase):
+    id: int
+    barbero_id: int
+
+    class Config:
+        from_attributes = True
+
+# --- SCHEMAS USUARIO ---
+class UserBase(BaseModel):
+    nombre: str
+    email: str
+    rol: str
+
+class UserCreate(UserBase):
+    password: str
+
+class UserResponse(UserBase):
+    id: int
+    horarios: List[WorkScheduleResponse] = []
+
+    class Config:
+        from_attributes = True
+
+# --- SCHEMAS SERVICIO ---
 class ServiceBase(BaseModel):
     nombre: str
     duracion_minutos: int
@@ -17,34 +49,18 @@ class ServiceResponse(ServiceBase):
     class Config:
         from_attributes = True
 
-# --- SCHEMAS DE USUARIOS ---
-class UserBase(BaseModel):
-    nombre: str
-    email: EmailStr
-    rol: Optional[str] = "CLIENTE"
-
-class UserCreate(UserBase):
-    password: str
-
-class UserResponse(UserBase):
-    id: int
-
-    class Config:
-        from_attributes = True
-
-# --- SCHEMAS DE TURNOS (APPOINTMENTS) ---
-class AppointmentCreate(BaseModel):
+# --- SCHEMAS TURNOS (APPOINTMENTS) ---
+class AppointmentBase(BaseModel):
     cliente_id: int
     barbero_id: int
     servicio_id: int
     fecha_hora_inicio: datetime
 
-class AppointmentResponse(BaseModel):
+class AppointmentCreate(AppointmentBase):
+    pass
+
+class AppointmentResponse(AppointmentBase):
     id: int
-    cliente_id: int
-    barbero_id: int
-    servicio_id: int
-    fecha_hora_inicio: datetime
     fecha_hora_fin: datetime
     estado: str
 

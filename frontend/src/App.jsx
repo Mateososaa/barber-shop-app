@@ -1,19 +1,20 @@
 import { useState } from 'react';
-import { ServiceList } from './components/ServiceList';
 import { AppointmentForm } from './components/AppointmentForm';
 import { AppointmentList } from './components/AppointmentList';
+import { ServiceManagement } from './components/ServiceManagement';
+import { BarberList } from './components/BarberList';
+import { BarberScheduleManagement } from './components/BarberScheduleManagement';
 
 function App() {
   const [currentView, setCurrentView] = useState('cliente');
-  const [refreshAppointments, setRefreshAppointments] = useState(0);
+  const [adminTab, setAdminTab] = useState('agenda'); // 'agenda' | 'servicios' | 'barberos' | 'horarios'
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  const handleAppointmentCreated = () => {
-    setRefreshAppointments((prev) => prev + 1);
-  };
+  const handleRefresh = () => setRefreshTrigger((prev) => prev + 1);
 
   return (
     <div className="min-vh-100 bg-light d-flex flex-column">
-      {/* Header / Navbar Profesional */}
+      {/* Navbar Principal */}
       <nav className="navbar navbar-expand-lg navbar-dark bg-dark sticky-top shadow-sm py-3">
         <div className="container">
           <a className="navbar-brand fw-bold d-flex align-items-center gap-2 fs-4" href="#">
@@ -36,60 +37,82 @@ function App() {
               }`}
               onClick={() => setCurrentView('barbero')}
             >
-              <i className="bi bi-speedometer2 me-1"></i>Panel Barbero
+              <i className="bi bi-speedometer2 me-1"></i>Panel Dueño / Admin
             </button>
           </div>
         </div>
       </nav>
 
-      {/* Contenido Principal */}
+      {/* Main Content */}
       <main className="container my-4 flex-grow-1">
         {currentView === 'cliente' ? (
-          <div>
-            {/* Banner de Bienvenida */}
-            <div className="bg-dark text-white p-4 p-md-5 rounded-4 shadow-sm mb-4 position-relative overflow-hidden">
-              <div className="position-relative z-1 col-md-8">
-                <span className="badge bg-warning text-dark mb-2 px-3 py-2 rounded-pill fw-bold">
-                  Reserva Online 24/7
-                </span>
-                <h1 className="display-6 fw-bold mb-2">Tu estilo, en manos de profesionales</h1>
-                <p className="text-white-50 lead mb-0">
-                  Elegí tu servicio preferido y agendá tu turno en segundos de forma rápida y sencilla.
-                </p>
+          <div className="row justify-content-center">
+            <div className="col-lg-10">
+              {/* Banner de Bienvenida */}
+              <div className="bg-dark text-white p-4 p-md-5 rounded-4 shadow-sm mb-4 position-relative overflow-hidden">
+                <div className="position-relative z-1">
+                  <span className="badge bg-warning text-dark mb-2 px-3 py-2 rounded-pill fw-bold">
+                    Reserva Online 24/7
+                  </span>
+                  <h1 className="display-6 fw-bold mb-2">Tu estilo, en manos de profesionales</h1>
+                  <p className="text-white-50 lead mb-0">
+                    Elegí tu servicio, barbero y horario en 2 sencillos pasos.
+                  </p>
+                </div>
               </div>
-            </div>
 
-            {/* Grilla en 2 Columnas para Desktop */}
-            <div className="row g-4">
-              <div className="col-lg-5">
-                <ServiceList />
-              </div>
-              <div className="col-lg-7">
-                <AppointmentForm onAppointmentCreated={handleAppointmentCreated} />
-              </div>
+              {/* Único flujo interactivo de Reserva */}
+              <AppointmentForm onAppointmentCreated={handleRefresh} />
             </div>
           </div>
         ) : (
           <div>
-            <div className="d-flex justify-content-between align-items-center mb-4">
+            {/* Encabezado y Navegación del Admin */}
+            <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
               <div>
                 <h2 className="fw-bold mb-1">
-                  <i className="bi bi-calendar3-range me-2 text-primary"></i>Panel de Gestión
+                  <i className="bi bi-gear-fill me-2 text-primary"></i>Centro de Control Barbería
                 </h2>
-                <p className="text-muted mb-0">Administración de agenda y facturación diaria</p>
+                <p className="text-muted mb-0">Gestión integral de turnos, servicios, equipo y jornadas</p>
+              </div>
+
+              {/* Botones de navegación en sub-pestañas */}
+              <div className="btn-group shadow-sm">
+                <button
+                  className={`btn ${adminTab === 'agenda' ? 'btn-dark' : 'btn-outline-dark'}`}
+                  onClick={() => setAdminTab('agenda')}
+                >
+                  <i className="bi bi-calendar-check me-1"></i>Agenda
+                </button>
+                <button
+                  className={`btn ${adminTab === 'servicios' ? 'btn-dark' : 'btn-outline-dark'}`}
+                  onClick={() => setAdminTab('servicios')}
+                >
+                  <i className="bi bi-stars me-1"></i>Servicios
+                </button>
+                <button
+                  className={`btn ${adminTab === 'barberos' ? 'btn-dark' : 'btn-outline-dark'}`}
+                  onClick={() => setAdminTab('barberos')}
+                >
+                  <i className="bi bi-people me-1"></i>Barberos
+                </button>
+                <button
+                  className={`btn ${adminTab === 'horarios' ? 'btn-dark' : 'btn-outline-dark'}`}
+                  onClick={() => setAdminTab('horarios')}
+                >
+                  <i className="bi bi-clock-history me-1"></i>Horarios
+                </button>
               </div>
             </div>
-            <AppointmentList refreshTrigger={refreshAppointments} />
+
+            {/* Sub-vistas Admin */}
+            {adminTab === 'agenda' && <AppointmentList refreshTrigger={refreshTrigger} />}
+            {adminTab === 'servicios' && <ServiceManagement onServicesUpdated={handleRefresh} />}
+            {adminTab === 'barberos' && <BarberList />}
+            {adminTab === 'horarios' && <BarberScheduleManagement />}
           </div>
         )}
       </main>
-
-      {/* Footer */}
-      <footer className="bg-white border-top py-3 text-center text-muted text-small mt-auto">
-        <div className="container">
-          <small>© {new Date().getFullYear()} Barbería Studio — Sistema de Gestión de Turnos</small>
-        </div>
-      </footer>
     </div>
   );
 }

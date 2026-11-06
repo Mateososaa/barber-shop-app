@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Time
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -6,22 +6,32 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String(100), nullable=False)
-    email = Column(String(100), unique=True, index=True, nullable=False)
-    password_hash = Column(String(255), nullable=False)
-    rol = Column(String(20), default="CLIENTE")  # CLIENTE, BARBERO, ADMIN
+    nombre = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    rol = Column(String, nullable=False)  # 'CLIENTE', 'BARBERO', 'ADMIN'
 
-    appointments = relationship("Appointment", foreign_keys="Appointment.cliente_id", back_populates="cliente")
+    # Relación con horarios de trabajo (si es barbero)
+    horarios = relationship("WorkSchedule", back_populates="barbero", cascade="all, delete-orphan")
 
 class Service(Base):
     __tablename__ = "services"
 
     id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String(100), nullable=False)
+    nombre = Column(String, nullable=False)
     duracion_minutos = Column(Integer, nullable=False)
     precio = Column(Float, nullable=False)
 
-    appointments = relationship("Appointment", back_populates="servicio")
+class WorkSchedule(Base):
+    __tablename__ = "work_schedules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    barbero_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    dia_semana = Column(Integer, nullable=False)  # 0 = Lunes, 1 = Martes, ..., 6 = Domingo
+    hora_apertura = Column(Time, nullable=False)
+    hora_cierre = Column(Time, nullable=False)
+
+    barbero = relationship("User", back_populates="horarios")
 
 class Appointment(Base):
     __tablename__ = "appointments"
@@ -32,7 +42,4 @@ class Appointment(Base):
     servicio_id = Column(Integer, ForeignKey("services.id"), nullable=False)
     fecha_hora_inicio = Column(DateTime, nullable=False)
     fecha_hora_fin = Column(DateTime, nullable=False)
-    estado = Column(String(20), default="RESERVADO")
-
-    cliente = relationship("User", foreign_keys=[cliente_id], back_populates="appointments")
-    servicio = relationship("Service", back_populates="appointments")  # Corregido a appointments
+    estado = Column(String, nullable=False)
