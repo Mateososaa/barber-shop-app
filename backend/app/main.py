@@ -8,6 +8,7 @@ from app.database import engine, Base, get_db
 import app.models as models
 import app.schemas as schemas
 from app.auth import create_access_token, get_current_user
+from datetime import date, time
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -119,6 +120,69 @@ def add_barber_schedule(barber_id: int, schedule: schemas.WorkScheduleCreate, db
 # ==========================================
 # 3. ENDPOINTS DE TURNOS (APPOINTMENTS)
 # ==========================================
+
+@app.get("/appointments/available-slots/", tags=["Turnos"])
+def get_available_slots(fecha: str, barbero_id: Optional[int] = None, db: Session = Depends(get_db)):
+    try:
+        fecha_dt = datetime.strptime(fecha, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usar YYYY-MM-DD")
+
+    dia_semana = fecha_dt.weekday() # 0 = Lunes, 6 = Domingo
+
+    # Obtener barberos a filtrar
+    query_barberos = db.query(models.User).filter(models.User.rol == "BARBERO")
+    if barbero_id:
+        query_barberos = query_barberos.filter(models.User.id == barbero_id)
+    barberos = query_barberos.all()
+
+    # Obtener turnos ya ocupados en ese día
+    inicio_dia = datetime.combine(fecha_dt, time.min)
+    fin_dia = datetime.combine(fecha_dt, time.max)
+    turnos_ocupados = db.query(models.Appointment).filter(
+        models.Appointment.fecha_hora_inicio >= inicio_dia,
+        models.Appointment.fecha_hora_inicio <= fin_dia
+    ).all()
+
+    # Construir grilla de horas disponibles (bloques de 30 min entre 08:00 y 21:00)
+    slots_disponibles = []
+
+    for b in barberos:
+        # Obtener horarios de trabajo del barbero para este día de la semana
+        horarios_trabajo = db.query(models.WorkSchedule).filter(
+            models.WorkSchedule.barbero_id == b.id,
+            models.WorkSchedule.dia_semana == dia_semana
+        ).all()
+
+        for h in horarios_trabajo:
+            # Generar intervalos de 30 minutos dentro de la jornada
+            hora_actual = datetime.combine(fecha_dt, h.hora_apertura)
+            hora_cierre = datetime.combine(fecha_dt, h.hora_cierre)
+
+            while hora_actual < hora_cierre:
+                fin_slot = hora_actual + timedelta(minutes=30)
+
+                # Si es hoy, filtrar horas que ya pasaron
+                if hora_actual > datetime.now():
+                    # Verificar que no se solape con un turno ocupado
+                    ocupado = any(
+                        t.barbero_id == b.id and t.fecha_hora_inicio < fin_slot and t.fecha_hora_fin > hora_actual
+                        for t in turnos_ocupados
+                    )
+
+                    if not ocupado:
+                        slots_disponibles.append({
+                            "hora": hora_actual.strftime("%H:%M"),
+                            "barbero_id": b.id,
+                            "barbero_nombre": b.nombre
+                        })
+
+                hora_actual = fin_slot
+
+    # Ordenar resultados por hora
+    slots_disponibles.sort(key=lambda x: x["hora"])
+    return slots_disponibles
+
 @app.post("/appointments/", response_model=schemas.AppointmentResponse, status_code=status.HTTP_201_CREATED, tags=["Turnos"])
 def create_appointment(appointment: schemas.AppointmentCreate, db: Session = Depends(get_db)):
     ahora = datetime.now()
@@ -261,3 +325,13 @@ def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
         "token_type": "bearer",
         "user": user
     }
+
+@app.delete("/schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Usuarios"])
+def delete_barber_schedule(schedule_id: int, db: Session = Depends(get_db)):
+    schedule = db.query(models.WorkSchedule).filter(models.WorkSchedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Franja horaria no encontrada")
+    
+    db.delete(schedule)
+    db.commit()
+    return None

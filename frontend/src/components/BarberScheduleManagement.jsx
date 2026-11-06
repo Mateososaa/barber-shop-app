@@ -54,6 +54,16 @@ export const BarberScheduleManagement = () => {
     }
   };
 
+  const handleDeleteSchedule = async (scheduleId) => {
+    if (!window.confirm('¿Estás seguro de eliminar esta franja horaria?')) return;
+    try {
+      await barberApi.delete(`/schedules/${scheduleId}`);
+      fetchUsers();
+    } catch (err) {
+      alert('Error al eliminar la franja horaria.');
+    }
+  };
+
   const getScheduleForDay = (dayIndex) => {
     if (!activeBarber || !activeBarber.horarios) return [];
     return activeBarber.horarios.filter((h) => h.dia_semana === dayIndex);
@@ -173,9 +183,18 @@ export const BarberScheduleManagement = () => {
                       {isWorking ? (
                         <div className="d-flex flex-column gap-1">
                           {daySchedules.map((h) => (
-                            <div key={h.id} className="p-2 bg-primary bg-opacity-10 text-primary rounded-3 small fw-semibold">
-                              <i className="bi bi-clock me-1"></i>
-                              {h.hora_apertura.slice(0, 5)} hs - {h.hora_cierre.slice(0, 5)} hs
+                            <div key={h.id} className="p-2 bg-primary bg-opacity-10 text-primary rounded-3 small fw-semibold d-flex justify-content-between align-items-center">
+                              <span>
+                                <i className="bi bi-clock me-1"></i>
+                                {h.hora_apertura.slice(0, 5)} hs - {h.hora_cierre.slice(0, 5)} hs
+                              </span>
+                              <button
+                                className="btn btn-sm btn-link text-danger p-0 ms-2"
+                                onClick={() => handleDeleteSchedule(h.id)}
+                                title="Eliminar franja"
+                              >
+                                <i className="bi bi-x-circle-fill"></i>
+                              </button>
                             </div>
                           ))}
                         </div>
