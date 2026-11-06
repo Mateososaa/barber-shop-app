@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import engine, Base, get_db
 import app.models as models
 import app.schemas as schemas
+from app.auth import create_access_token, get_current_user
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -241,3 +242,22 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     db.delete(user)
     db.commit()
     return None
+
+# Endpoint de autenticación
+@app.post("/login", response_model=schemas.TokenResponse, tags=["Autenticación"])
+def login(credentials: schemas.LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == credentials.email).first()
+    
+    # Verificación directa de password (o hashing si tenés contraseñas encriptadas)
+    if not user or user.password_hash != credentials.password:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email o contraseña incorrectos"
+        )
+    
+    access_token = create_access_token(data={"sub": user.email, "rol": user.rol})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user
+    }
