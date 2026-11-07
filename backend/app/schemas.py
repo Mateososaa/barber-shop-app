@@ -76,3 +76,12 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
+
+# Agregar en schemas.py
+class AppointmentExpressCreate(BaseModel):
+    cliente_nombre: str
+    cliente_email: str
+    cliente_telefono: Optional[str] = None
+    barbero_id: int
+    servicio_id: int
+    fecha_hora_inicio: datetime

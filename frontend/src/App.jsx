@@ -139,7 +139,7 @@ function App() {
             </div>
 
             {/* Sub-vistas Admin */}
-            {adminTab === 'agenda' && <AppointmentList refreshTrigger={refreshTrigger} />}
+{adminTab === 'agenda' && <AppointmentList key={user?.id} refreshTrigger={refreshTrigger} user={user} />}
             {adminTab === 'servicios' && <ServiceManagement onServicesUpdated={handleRefresh} />}
             {adminTab === 'barberos' && <BarberList />}
             {adminTab === 'horarios' && <BarberScheduleManagement />}

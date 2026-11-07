@@ -1,234 +1,223 @@
-import { useEffect, useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import barberApi from '../api/barberApi';
 
-export const AppointmentList = ({ refreshTrigger }) => {
+export const AppointmentList = ({ refreshTrigger, user }) => {
   const [appointments, setAppointments] = useState([]);
   const [services, setServices] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState([]);
+  
+  // Filtros
+  const [selectedBarberId, setSelectedBarberId] = useState('');
   const [filterDate, setFilterDate] = useState('');
-  const [statusTab, setStatusTab] = useState('activos'); // 'activos' | 'finalizados' | 'todos'
+  const [activeTab, setActiveTab] = useState('activos'); // 'activos' | 'finalizados' | 'todos'
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
-      const [appRes, servRes] = await Promise.all([
-        barberApi.get('/appointments/'),
-        barberApi.get('/services/')
+      const params = {};
+      
+      // Si el usuario logueado es BARBERO, forzamos filtrar solo sus turnos
+      if (user && user.rol === 'BARBERO') {
+        params.barbero_id = user.id;
+      } else if (selectedBarberId) {
+        params.barbero_id = selectedBarberId;
+      }
+
+      const [appRes, servRes, usersRes] = await Promise.all([
+        barberApi.get('/appointments/', { params }),
+        barberApi.get('/services/'),
+        barberApi.get('/users/')
       ]);
+
       setAppointments(appRes.data);
       setServices(servRes.data);
-      setLoading(false);
+      setUsers(usersRes.data);
     } catch (err) {
-      console.error('Error al cargar agenda:', err);
-      setLoading(false);
+      console.error('Error al cargar la agenda:', err);
     }
-  };
+  }, [user, selectedBarberId]);
 
   useEffect(() => {
     fetchData();
-  }, [refreshTrigger]);
+  }, [fetchData, refreshTrigger]);
 
   const handleDelete = async (id) => {
-    if (!window.confirm(`¿Estás seguro de cancelar el turno #${id}?`)) return;
-
+    if (!window.confirm('¿Estás seguro de cancelar/eliminar este turno?')) return;
     try {
       await barberApi.delete(`/appointments/${id}`);
       fetchData();
     } catch (err) {
-      console.error('Error al eliminar turno:', err);
-      alert('No se pudo cancelar el turno.');
+      alert('Error al cancelar el turno.');
     }
   };
 
-  const formatFecha = (isoString) => {
-    const date = new Date(isoString);
-    return date.toLocaleString('es-AR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const getServiceInfo = (id) => services.find((s) => s.id === id) || { nombre: 'Servicio', precio: 0 };
+  const getUserInfo = (id) => users.find((u) => u.id === id) || { nombre: 'Usuario' };
 
-  const renderBadgeEstado = (estado) => {
-    switch (estado) {
-      case 'Reservado':
-        return <span className="badge bg-success fw-bold">Reservado</span>;
-      case 'En Curso':
-        return <span className="badge bg-warning text-dark fw-bold">En Curso</span>;
-      case 'Finalizado':
-        return <span className="badge bg-danger fw-bold">Finalizado</span>;
-      default:
-        return <span className="badge bg-secondary">{estado}</span>;
+  const barberos = users.filter((u) => u.rol === 'BARBERO');
+  const isBarberoRole = user && user.rol === 'BARBERO';
+
+  // Filtrado de turnos en el frontend por fecha y estado
+  const filteredAppointments = appointments.filter((app) => {
+    // Si por algún motivo el backend mandó otros turnos, los filtramos en frontend también si es barbero
+    if (isBarberoRole && app.barbero_id !== user.id) {
+      return false;
     }
-  };
 
-  // 1. Filtrado por fecha
-  let filteredAppointments = filterDate
-    ? appointments.filter((app) => app.fecha_hora_inicio.startsWith(filterDate))
-    : appointments;
+    // Filtro por fecha
+    if (filterDate) {
+      const fechaTurno = app.fecha_hora_inicio.split('T')[0];
+      if (fechaTurno !== filterDate) return false;
+    }
 
-  // 2. Filtrado por Pestaña de Estado
-  if (statusTab === 'activos') {
-    filteredAppointments = filteredAppointments.filter(
-      (app) => app.estado === 'Reservado' || app.estado === 'En Curso'
-    );
-  } else if (statusTab === 'finalizados') {
-    filteredAppointments = filteredAppointments.filter((app) => app.estado === 'Finalizado');
-  }
-
-  // 3. Ordenamiento cronológico (más antiguos/próximos primero)
-  filteredAppointments.sort(
-    (a, b) => new Date(a.fecha_hora_inicio) - new Date(b.fecha_hora_inicio)
-  );
-
-  const getServiceInfo = (servicioId) => {
-    const service = services.find((s) => s.id === servicioId);
-    return service ? `${service.nombre} ($${service.precio})` : `Servicio #${servicioId}`;
-  };
-
-  const totalEstimado = filteredAppointments.reduce((acc, app) => {
-    const service = services.find((s) => s.id === app.servicio_id);
-    return acc + (service ? service.precio : 0);
-  }, 0);
-
-  if (loading) return <div className="text-center my-4"><div className="spinner-border text-dark" role="status"></div></div>;
+    // Filtro por pestañas de estado
+    if (activeTab === 'activos') return app.estado === 'Reservado' || app.estado === 'En Curso';
+    if (activeTab === 'finalizados') return app.estado === 'Finalizado';
+    return true;
+  });
 
   return (
-    <div>
-      {/* Tarjetas de métricas rápidas */}
-      <div className="row mb-4">
-        <div className="col-md-6 mb-2">
-          <div className="card border-0 shadow-sm bg-dark text-white">
-            <div className="card-body d-flex justify-content-between align-items-center p-3">
-              <div>
-                <h6 className="card-subtitle text-white-50 mb-1">Turnos Visibles</h6>
-                <h3 className="card-title mb-0 fw-bold">{filteredAppointments.length}</h3>
-              </div>
-              <i className="bi bi-calendar-event fs-1 text-white-50"></i>
-            </div>
+    <div className="card shadow-sm border-0 rounded-4">
+      <div className="card-body p-4">
+        {/* Encabezado y Filtros */}
+        <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
+          <div>
+            <h5 className="fw-bold mb-1">
+              <i className="bi bi-calendar-check-fill text-primary me-2"></i>
+              {isBarberoRole ? `Mi Agenda Personal (${user.nombre})` : 'Agenda General de Turnos'}
+            </h5>
+            <p className="text-muted small mb-0">
+              {isBarberoRole
+                ? 'Visualizando solo tus citas asignadas'
+                : 'Gestión y control de turnos de la barbería'}
+            </p>
+          </div>
+
+          <div className="d-flex flex-wrap gap-2 align-items-center">
+            {/* Solo se muestra el selector de barberos si es ADMIN */}
+            {!isBarberoRole && (
+              <select
+                className="form-select form-select-sm rounded-3"
+                value={selectedBarberId}
+                onChange={(e) => setSelectedBarberId(e.target.value)}
+              >
+                <option value="">Todos los Barberos</option>
+                {barberos.map((b) => (
+                  <option key={b.id} value={b.id}>{b.nombre}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Filtro por fecha */}
+            <input
+              type="date"
+              className="form-control form-control-sm rounded-3"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+            />
+
+            {filterDate && (
+              <button className="btn btn-sm btn-outline-secondary rounded-3" onClick={() => setFilterDate('')}>
+                Limpiar fecha
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="col-md-6 mb-2">
-          <div className="card border-0 shadow-sm bg-success text-white">
-            <div className="card-body d-flex justify-content-between align-items-center p-3">
-              <div>
-                <h6 className="card-subtitle text-white-50 mb-1">Recaudación Estimada</h6>
-                <h3 className="card-title mb-0 fw-bold">${totalEstimado}</h3>
-              </div>
-              <i className="bi bi-cash-stack fs-1 text-white-50"></i>
-            </div>
-          </div>
+        {/* Pestañas de Estado */}
+        <div className="d-flex gap-2 border-bottom pb-3 mb-3">
+          <button
+            className={`btn btn-sm rounded-pill ${activeTab === 'activos' ? 'btn-primary' : 'btn-light text-muted'}`}
+            onClick={() => setActiveTab('activos')}
+          >
+            Próximos y En Curso ({filteredAppointments.filter(a => a.estado !== 'Finalizado').length})
+          </button>
+          <button
+            className={`btn btn-sm rounded-pill ${activeTab === 'finalizados' ? 'btn-primary' : 'btn-light text-muted'}`}
+            onClick={() => setActiveTab('finalizados')}
+          >
+            Finalizados ({filteredAppointments.filter(a => a.estado === 'Finalizado').length})
+          </button>
+          <button
+            className={`btn btn-sm rounded-pill ${activeTab === 'todos' ? 'btn-primary' : 'btn-light text-muted'}`}
+            onClick={() => setActiveTab('todos')}
+          >
+            Todos ({filteredAppointments.length})
+          </button>
         </div>
-      </div>
 
-      {/* Tabla de Agenda con Filtros */}
-      <div className="card shadow-sm border-0">
-        <div className="card-body p-4">
-          <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3 gap-2">
-            <h4 className="card-title fw-bold mb-0">
-              <i className="bi bi-calendar-check me-2"></i>Agenda de Turnos
-            </h4>
-
-            {/* Filtro por Día */}
-            <div className="d-flex align-items-center gap-2">
-              <label className="form-label mb-0 fw-bold text-nowrap">Filtrar Día:</label>
-              <div className="input-group input-group-sm">
-                <span className="input-group-text bg-white border-end-0">
-                  <i className="bi bi-calendar-event text-primary"></i>
-                </span>
-                <input
-                  type="date"
-                  className="form-control border-start-0"
-                  value={filterDate}
-                  onChange={(e) => setFilterDate(e.target.value)}
-                  onClick={(e) => e.target.showPicker && e.target.showPicker()}
-                />
-              </div>
-              {filterDate && (
-                <button
-                  className="btn btn-sm btn-outline-secondary text-nowrap"
-                  onClick={() => setFilterDate('')}
-                  title="Limpiar filtro"
-                >
-                  Limpiar
-                </button>
-              )}
-            </div>
+        {/* Tabla de Turnos */}
+        {filteredAppointments.length === 0 ? (
+          <div className="text-center py-5 text-muted">
+            <i className="bi bi-calendar-x fs-1 opacity-50 mb-2 d-block"></i>
+            No hay turnos registrados con los filtros seleccionados.
           </div>
+        ) : (
+          <div className="table-responsive">
+            <table className="table table-hover align-middle mb-0">
+              <thead className="table-dark">
+                <tr>
+                  <th>Fecha y Hora</th>
+                  <th>Cliente</th>
+                  <th>Servicio</th>
+                  {!isBarberoRole && <th>Barbero</th>}
+                  <th>Estado</th>
+                  <th className="text-end">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAppointments.map((app) => {
+                  const service = getServiceInfo(app.servicio_id);
+                  const client = getUserInfo(app.cliente_id);
+                  const barber = getUserInfo(app.barbero_id);
+                  const fechaFormatted = new Date(app.fecha_hora_inicio).toLocaleString('es-AR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  });
 
-          {/* Pestañas de estado (Tabs) */}
-          <ul className="nav nav-pills mb-3 border-bottom pb-2">
-            <li className="nav-item">
-              <button
-                className={`nav-link btn-sm ${statusTab === 'activos' ? 'active bg-dark' : 'text-dark'}`}
-                onClick={() => setStatusTab('activos')}
-              >
-                <i className="bi bi-play-circle me-1"></i>Activos (Reservados / En Curso)
-              </button>
-            </li>
-            <li className="nav-item">
-              <button
-                className={`nav-link btn-sm ${statusTab === 'finalizados' ? 'active bg-danger' : 'text-dark'}`}
-                onClick={() => setStatusTab('finalizados')}
-              >
-                <i className="bi bi-check2-circle me-1"></i>Finalizados
-              </button>
-            </li>
-            <li className="nav-item">
-              <button
-                className={`nav-link btn-sm ${statusTab === 'todos' ? 'active bg-secondary' : 'text-dark'}`}
-                onClick={() => setStatusTab('todos')}
-              >
-                <i className="bi bi-list-stars me-1"></i>Todos
-              </button>
-            </li>
-          </ul>
-
-          {filteredAppointments.length === 0 ? (
-            <p className="text-muted my-3">No hay turnos para la vista o fecha seleccionada.</p>
-          ) : (
-            <div className="table-responsive">
-              <table className="table table-hover align-middle mb-0">
-                <thead className="table-dark">
-                  <tr>
-                    <th>ID</th>
-                    <th>Cliente</th>
-                    <th>Barbero</th>
-                    <th>Servicio</th>
-                    <th>Inicio</th>
-                    <th>Fin</th>
-                    <th>Estado</th>
-                    <th className="text-center">Acción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAppointments.map((app) => (
+                  return (
                     <tr key={app.id}>
-                      <td>#{app.id}</td>
-                      <td>Cliente #{app.cliente_id}</td>
-                      <td>Barbero #{app.barbero_id}</td>
-                      <td>{getServiceInfo(app.servicio_id)}</td>
-                      <td>{formatFecha(app.fecha_hora_inicio)}</td>
-                      <td>{formatFecha(app.fecha_hora_fin)}</td>
-                      <td>{renderBadgeEstado(app.estado)}</td>
-                      <td className="text-center">
-                        <button
-                          className="btn btn-outline-danger btn-sm"
-                          onClick={() => handleDelete(app.id)}
-                          title="Cancelar turno"
+                      <td className="fw-semibold">{fechaFormatted} hs</td>
+                      <td>
+                        <div className="fw-bold">{client.nombre}</div>
+                        <div className="small text-muted">{client.email}</div>
+                      </td>
+                      <td>
+                        <span className="fw-semibold text-primary">{service.nombre}</span>
+                        <div className="small text-success fw-bold">${service.precio}</div>
+                      </td>
+                      {!isBarberoRole && <td>{barber.nombre}</td>}
+                      <td>
+                        <span
+                          className={`badge rounded-pill ${
+                            app.estado === 'Reservado'
+                              ? 'bg-success'
+                              : app.estado === 'En Curso'
+                              ? 'bg-warning text-dark'
+                              : 'bg-danger'
+                          }`}
                         >
-                          <i className="bi bi-trash me-1"></i>Cancelar
+                          {app.estado}
+                        </span>
+                      </td>
+                      <td className="text-end">
+                        <button
+                          className="btn btn-outline-danger btn-sm rounded-3"
+                          onClick={() => handleDelete(app.id)}
+                          title="Cancelar Turno"
+                        >
+                          <i className="bi bi-trash"></i>
                         </button>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

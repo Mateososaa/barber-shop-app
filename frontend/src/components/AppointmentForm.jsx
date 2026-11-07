@@ -2,13 +2,16 @@ import { useState, useEffect } from 'react';
 import barberApi from '../api/barberApi';
 
 export const AppointmentForm = ({ onAppointmentCreated }) => {
-  const [users, setUsers] = useState([]);
   const [services, setServices] = useState([]);
+  const [barberos, setBarberos] = useState([]);
   const [availableSlots, setAvailableSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
+  // Estado del formulario con datos de contacto directo (sin login previo)
   const [formData, setFormData] = useState({
-    cliente_id: '',
+    cliente_nombre: '',
+    cliente_email: '',
+    cliente_telefono: '',
     servicio_id: '',
     barbero_id: '',
     fecha: '',
@@ -23,12 +26,12 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [usersRes, servicesRes] = await Promise.all([
-          barberApi.get('/users/'),
-          barberApi.get('/services/')
+        const [servicesRes, usersRes] = await Promise.all([
+          barberApi.get('/services/'),
+          barberApi.get('/users/')
         ]);
-        setUsers(usersRes.data);
         setServices(servicesRes.data);
+        setBarberos(usersRes.data.filter((u) => u.rol === 'BARBERO'));
       } catch (err) {
         console.error('Error al obtener datos iniciales:', err);
       }
@@ -51,7 +54,7 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
     return () => window.removeEventListener('click', handleGlobalClick);
   }, []);
 
-  // Buscar slots libres en la base de datos cuando cambia la fecha o el barbero
+  // Buscar franjas horarias libres según fecha y barbero seleccionado
   useEffect(() => {
     if (!formData.fecha) {
       setAvailableSlots([]);
@@ -102,21 +105,31 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
       return setError('Por favor seleccioná un servicio haciendo clic en una de las tarjetas.');
     }
     if (!formData.hora || !formData.barbero_id) {
-      return setError('Por favor elegí un horario disponible.');
+      return setError('Por favor elegí una franja horaria disponible.');
     }
 
     const fechaHoraInicio = `${formData.fecha}T${formData.hora}`;
 
     try {
-      const response = await barberApi.post('/appointments/', {
-        cliente_id: parseInt(formData.cliente_id),
+      const response = await barberApi.post('/appointments/express/', {
+        cliente_nombre: formData.cliente_nombre,
+        cliente_email: formData.cliente_email,
+        cliente_telefono: formData.cliente_telefono,
         barbero_id: parseInt(formData.barbero_id),
         servicio_id: parseInt(formData.servicio_id),
         fecha_hora_inicio: fechaHoraInicio
       });
 
-      setMessage('¡Turno reservado exitosamente!');
-      setFormData({ cliente_id: '', servicio_id: '', barbero_id: '', fecha: '', hora: '' });
+      setMessage('¡Tu turno fue reservado con éxito!');
+      setFormData({
+        cliente_nombre: '',
+        cliente_email: '',
+        cliente_telefono: '',
+        servicio_id: '',
+        barbero_id: '',
+        fecha: '',
+        hora: ''
+      });
       setAvailableSlots([]);
       if (onAppointmentCreated) onAppointmentCreated(response.data);
     } catch (err) {
@@ -128,8 +141,6 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
     }
   };
 
-  const barberos = users.filter((u) => u.rol === 'BARBERO');
-  const clientes = users.filter((u) => u.rol === 'CLIENTE');
   const selectedService = services.find((s) => s.id.toString() === formData.servicio_id);
   const selectedBarber = barberos.find((b) => b.id.toString() === formData.barbero_id);
 
@@ -191,11 +202,11 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
         </div>
       </div>
 
-      {/* 2. BÚSQUEDA Y DISPONIBILIDAD DE HORARIOS */}
+      {/* 2. DATOS DE FECHA, BARBERO Y CONTACTO */}
       <div className="reservation-form-container card shadow-sm border-0 rounded-4">
         <div className="card-body p-4">
           <h5 className="fw-bold mb-3">
-            <i className="bi bi-calendar-event text-primary me-2"></i>2. Elegí Fecha y Barbero
+            <i className="bi bi-calendar-event text-primary me-2"></i>2. Elegí Fecha y Completá tus Datos
           </h5>
 
           {message && <div className="alert alert-success rounded-3">{message}</div>}
@@ -203,25 +214,9 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
 
           <form onSubmit={handleSubmit}>
             <div className="row g-3">
-              {/* Cliente */}
-              <div className="col-md-4">
-                <label className="form-label small fw-bold text-muted">Cliente</label>
-                <select
-                  className="form-select rounded-3 py-2"
-                  value={formData.cliente_id}
-                  onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value })}
-                  required
-                >
-                  <option value="">Seleccionar Cliente...</option>
-                  {clientes.map((c) => (
-                    <option key={c.id} value={c.id}>{c.nombre} ({c.email})</option>
-                  ))}
-                </select>
-              </div>
-
               {/* Fecha */}
-              <div className="col-md-4">
-                <label className="form-label small fw-bold text-muted">1. Seleccionar Día</label>
+              <div className="col-md-6">
+                <label className="form-label small fw-bold text-muted">Fecha del Turno</label>
                 <input
                   type="date"
                   className="form-control rounded-3 py-2"
@@ -233,9 +228,9 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
                 />
               </div>
 
-              {/* Barbero Opcional / Filtrar */}
-              <div className="col-md-4">
-                <label className="form-label small fw-bold text-muted">2. Barbero (Opcional)</label>
+              {/* Barbero (Opcional) */}
+              <div className="col-md-6">
+                <label className="form-label small fw-bold text-muted">Barbero (Opcional)</label>
                 <select
                   className="form-select rounded-3 py-2"
                   value={formData.barbero_id}
@@ -247,53 +242,95 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
                   ))}
                 </select>
               </div>
-            </div>
 
-            {/* GRILLA DE HORARIOS DISPONIBLES */}
-            {formData.fecha && (
-              <div className="mt-4">
-                <h6 className="fw-bold text-secondary mb-3">
-                  <i className="bi bi-clock-history me-1"></i>Turnos Disponibles para el {formData.fecha}
+              {/* Horarios Disponibles */}
+              {formData.fecha && (
+                <div className="col-12 mt-3">
+                  <h6 className="fw-bold text-secondary mb-3">
+                    <i className="bi bi-clock-history me-1"></i>Horarios Disponibles
+                  </h6>
+
+                  {loadingSlots ? (
+                    <div className="text-center py-3">
+                      <div className="spinner-border text-primary spinner-border-sm" role="status"></div>
+                      <span className="ms-2 text-muted small">Buscando franjas libres...</span>
+                    </div>
+                  ) : availableSlots.length === 0 ? (
+                    <div className="alert alert-warning rounded-3 small">
+                      No hay turnos libres para esta fecha o barbero.
+                    </div>
+                  ) : (
+                    <div className="row g-2" style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                      {availableSlots.map((slot, idx) => {
+                        const isSelected = formData.hora === slot.hora && formData.barbero_id === slot.barbero_id.toString();
+
+                        return (
+                          <div key={idx} className="col-6 col-sm-4 col-md-3">
+                            <button
+                              type="button"
+                              className={`btn w-100 btn-sm p-2 rounded-3 text-start border transition-all ${
+                                isSelected
+                                  ? 'btn-primary shadow-sm'
+                                  : 'btn-outline-secondary text-dark border-opacity-25'
+                              }`}
+                              onClick={() => handleSelectSlot(slot)}
+                            >
+                              <div className="fw-bold fs-6">{slot.hora} hs</div>
+                              <div className="small opacity-75 text-truncate">
+                                <i className="bi bi-person me-1"></i>{slot.barbero_nombre}
+                              </div>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Datos de Contacto del Cliente */}
+              <div className="col-12 mt-4 pt-3 border-top">
+                <h6 className="fw-bold mb-3 text-dark">
+                  <i className="bi bi-person-lines-fill me-2 text-primary"></i>Tus Datos de Contacto
                 </h6>
-
-                {loadingSlots ? (
-                  <div className="text-center py-4">
-                    <div className="spinner-border text-primary spinner-border-sm" role="status"></div>
-                    <span className="ms-2 text-muted small">Buscando franjas horarias libres...</span>
-                  </div>
-                ) : availableSlots.length === 0 ? (
-                  <div className="alert alert-warning rounded-3 small">
-                    <i className="bi bi-exclamation-triangle-fill me-2"></i>
-                    No hay turnos disponibles para esta fecha o barbero. Probá seleccionando otro día o barbero.
-                  </div>
-                ) : (
-                  <div className="row g-2" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                    {availableSlots.map((slot, idx) => {
-                      const isSelected = formData.hora === slot.hora && formData.barbero_id === slot.barbero_id.toString();
-
-                      return (
-                        <div key={idx} className="col-6 col-sm-4 col-md-3">
-                          <button
-                            type="button"
-                            className={`btn w-100 btn-sm p-2 rounded-3 text-start border transition-all ${
-                              isSelected
-                                ? 'btn-primary shadow-sm'
-                                : 'btn-outline-secondary text-dark border-opacity-25'
-                            }`}
-                            onClick={() => handleSelectSlot(slot)}
-                          >
-                            <div className="fw-bold fs-6">{slot.hora} hs</div>
-                            <div className="small opacity-75 text-truncate">
-                              <i className="bi bi-person me-1"></i>{slot.barbero_nombre}
-                            </div>
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
-            )}
+
+              <div className="col-md-4">
+                <label className="form-label small fw-bold text-muted">Nombre y Apellido</label>
+                <input
+                  type="text"
+                  className="form-control rounded-3 py-2"
+                  value={formData.cliente_nombre}
+                  onChange={(e) => setFormData({ ...formData, cliente_nombre: e.target.value })}
+                  placeholder="Ej: Mateo Sosa"
+                  required
+                />
+              </div>
+
+              <div className="col-md-4">
+                <label className="form-label small fw-bold text-muted">Email</label>
+                <input
+                  type="email"
+                  className="form-control rounded-3 py-2"
+                  value={formData.cliente_email}
+                  onChange={(e) => setFormData({ ...formData, cliente_email: e.target.value })}
+                  placeholder="ejemplo@gmail.com"
+                  required
+                />
+              </div>
+
+              <div className="col-md-4">
+                <label className="form-label small fw-bold text-muted">WhatsApp / Teléfono</label>
+                <input
+                  type="tel"
+                  className="form-control rounded-3 py-2"
+                  value={formData.cliente_telefono}
+                  onChange={(e) => setFormData({ ...formData, cliente_telefono: e.target.value })}
+                  placeholder="Ej: 3511234567"
+                  required
+                />
+              </div>
+            </div>
 
             {/* Resumen Final de Reserva */}
             {selectedService && formData.fecha && formData.hora && (
@@ -315,9 +352,9 @@ export const AppointmentForm = ({ onAppointmentCreated }) => {
             <button
               type="submit"
               className="btn btn-dark w-100 mt-4 py-2.5 fw-bold rounded-3"
-              disabled={!formData.fecha || !formData.hora || !formData.servicio_id}
+              disabled={!formData.fecha || !formData.hora || !formData.servicio_id || !formData.cliente_nombre}
             >
-              Confirmar Reserva
+              Confirmar Reserva Express
             </button>
           </form>
         </div>

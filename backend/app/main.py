@@ -265,17 +265,70 @@ def get_appointments(db: Session = Depends(get_db)):
         app_item.estado = calcular_estado_turno(app_item.fecha_hora_inicio, app_item.fecha_hora_fin)
     return appointments
 
-@app.delete("/appointments/{appointment_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Turnos"])
-def delete_appointment(appointment_id: int, db: Session = Depends(get_db)):
-    appointment = db.query(models.Appointment).filter(models.Appointment.id == appointment_id).first()
-    if not appointment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El turno no existe."
+@app.get("/appointments/", response_model=List[schemas.AppointmentResponse], tags=["Turnos"])
+def get_appointments(barbero_id: Optional[int] = None, db: Session = Depends(get_db)):
+    query = db.query(models.Appointment)
+    
+    # Si viene el ID del barbero, filtramos solo sus turnos
+    if barbero_id:
+        query = query.filter(models.Appointment.barbero_id == barbero_id)
+        
+    appointments = query.order_by(models.Appointment.fecha_hora_inicio.asc()).all()
+    
+    for app_item in appointments:
+        app_item.estado = calcular_estado_turno(app_item.fecha_hora_inicio, app_item.fecha_hora_fin)
+        
+    return appointments
+
+@app.post("/appointments/express/", response_model=schemas.AppointmentResponse, tags=["Turnos"])
+def create_express_appointment(data: schemas.AppointmentExpressCreate, db: Session = Depends(get_db)):
+    # 1. Buscar si el cliente ya existe por email
+    cliente = db.query(models.User).filter(models.User.email == data.cliente_email).first()
+    
+    # 2. Si no existe, creamos el usuario en la BD automáticamente
+    if not cliente:
+        cliente = models.User(
+            nombre=data.cliente_nombre,
+            email=data.cliente_email,
+            password_hash="guest_pass", # Contraseña por defecto para cuentas generadas
+            rol="CLIENTE"
         )
-    db.delete(appointment)
+        db.add(cliente)
+        db.commit()
+        db.refresh(cliente)
+
+    # 3. Obtener el servicio para calcular duración y fin de turno
+    servicio = db.query(models.Service).filter(models.Service.id == data.servicio_id).first()
+    if not servicio:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+
+    fecha_hora_fin = data.fecha_hora_inicio + timedelta(minutes=servicio.duracion_minutos)
+
+    # 4. Validar solapamientos
+    solapamiento = db.query(models.Appointment).filter(
+        models.Appointment.barbero_id == data.barbero_id,
+        models.Appointment.fecha_hora_inicio < fecha_hora_fin,
+        models.Appointment.fecha_hora_fin > data.fecha_hora_inicio
+    ).first()
+
+    if solapamiento:
+        raise HTTPException(status_code=409, detail="El barbero ya tiene un turno reservado en esa franja horaria.")
+
+    # 5. Guardar turno
+    nuevo_turno = models.Appointment(
+        cliente_id=cliente.id,
+        barbero_id=data.barbero_id,
+        servicio_id=data.servicio_id,
+        fecha_hora_inicio=data.fecha_hora_inicio,
+        fecha_hora_fin=fecha_hora_fin,
+        estado="Reservado"
+    )
+    db.add(nuevo_turno)
     db.commit()
-    return None
+    db.refresh(nuevo_turno)
+
+    nuevo_turno.estado = calcular_estado_turno(nuevo_turno.fecha_hora_inicio, nuevo_turno.fecha_hora_fin)
+    return nuevo_turno
 
 @app.put("/users/{user_id}", response_model=schemas.UserResponse, tags=["Usuarios"])
 def update_user(user_id: int, updated: schemas.UserCreate, db: Session = Depends(get_db)):
